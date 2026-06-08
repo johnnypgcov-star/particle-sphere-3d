@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Particle Sphere — 3D Animation</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
+    canvas { display: block; }
+    #ui {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      padding: 22px 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      pointer-events: none;
+    }
+    .ui-title {
+      color: rgba(255,255,255,0.85);
+      font-size: 17px;
+      font-weight: 300;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+    .ui-hint {
+      color: rgba(255,255,255,0.35);
+      font-size: 12px;
+      text-align: right;
+      line-height: 1.7;
+    }
+  </style>
+</head>
+<body>
+
+<div id="ui">
+  <div class="ui-title">Particle Sphere</div>
+  <div class="ui-hint">Drag to rotate · Scroll to zoom</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+
+// ─── Renderer / Camera / Scene ────────────────────────────────
+var renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+document.body.appendChild(renderer.domElement);
+
+var scene  = new THREE.Scene();
+var camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 500);
+camera.position.z = 18;
+
+var controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping  = true;
+controls.dampingFactor  = 0.06;
+controls.minDistance    = 8;
+controls.maxDistance    = 50;
+
+// ─── Color palette ────────────────────────────────────────────
+var palette = [
+  new THREE.Color(0x00ffff),
+  new THREE.Color(0xff1493),
+  new THREE.Color(0x7b2fff),
+  new THREE.Color(0xff69b4),
+  new THREE.Color(0x00bfff),
+  new THREE.Color(0x39ff14),
+];
+
+// ─── Particle sphere ──────────────────────────────────────────
+function buildParticleSphere(radius, count) {
+  var pos    = new Float32Array(count * 3);
+  var col    = new Float32Array(count * 3);
+  var golden = Math.PI * (1 + Math.sqrt(5));
+
+  for (var i = 0; i < count; i++) {
+    var phi   = Math.acos(1 - 2 * (i + 0.5) / count);
+    var theta = golden * i;
+    var r     = radius * (0.965 + Math.random() * 0.07);
+
+    pos[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+    pos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+    pos[i*3+2] = r * Math.cos(phi);
+
+    var c      = palette[i % palette.length];
+    var bright = 0.65 + Math.random() * 0.7;
+    col[i*3]   = Math.min(c.r * bright, 1);
+    col[i*3+1] = Math.min(c.g * bright, 1);
+    col[i*3+2] = Math.min(c.b * bright, 1);
+  }
+
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color',    new THREE.BufferAttribute(col, 3));
+
+  return new THREE.Points(geo, new THREE.PointsMaterial({
+    size: 0.058,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.92,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    sizeAttenuation: true,
+  }));
+}
+
+// ─── Single orbit ring with layered glow ──────────────────────
+function buildOrbitRing(radius, color, segments) {
+  segments = segments || 320;
+  var rawPts = new Float32Array((segments + 1) * 3);
+  for (var i = 0; i <= segments; i++) {
+    var a = (i / segments) * Math.PI * 2;
+    rawPts[i*3]   = Math.cos(a) * radius;
+    rawPts[i*3+1] = Math.sin(a) * radius;
+    rawPts[i*3+2] = 0;
+  }
+
+  var group  = new THREE.Group();
+  var layers = [
+    { scale: 1.014, opacity: 0.18 },
+    { scale: 1.005, opacity: 0.42 },
+    { scale: 1.000, opacity: 0.90 },
+  ];
+
+  layers.forEach(function(layer) {
+    var pts = rawPts.slice();
+    for (var i = 0; i < pts.length; i++) {
+      if (i % 3 !== 2) pts[i] *= layer.scale;
+    }
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+    group.add(new THREE.LineLoop(geo, new THREE.LineBasicMaterial({
+      color: color,
+      transparent: true,
+      opacity: layer.opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })));
+  });
+
+  // Sparkle dots along the ring
+  var sparkCount = 60;
+  var sparkPos   = new Float32Array(sparkCount * 3);
+  for (var k = 0; k < sparkCount; k++) {
+    var a = (k / sparkCount) * Math.PI * 2;
+    var j = (Math.random() - 0.5) * 0.12;
+    sparkPos[k*3]   = Math.cos(a) * (radius + j);
+    sparkPos[k*3+1] = Math.sin(a) * (radius + j);
+    sparkPos[k*3+2] = (Math.random() - 0.5) * 0.12;
+  }
+  var sparkGeo = new THREE.BufferGeometry();
+  sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
+  group.add(new THREE.Points(sparkGeo, new THREE.PointsMaterial({
+    size: 0.09,
+    color: color,
+    transparent: true,
+    opacity: 0.6,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  })));
+
+  return group;
+}
+
+// ─── Six orbit rings at distinct inclinations ─────────────────
+function buildAllRings(radius, count) {
+  var group = new THREE.Group();
+  for (var i = 0; i < count; i++) {
+    var color = palette[i % palette.length];
+    var ring  = buildOrbitRing(radius, color);
+    ring.rotation.x = (i / count) * Math.PI;
+    ring.rotation.y = (i / count) * Math.PI * 0.8 + 0.25;
+    ring.userData.speed = 0.0022 + Math.random() * 0.0028;
+    ring.userData.dir   = i % 2 === 0 ? 1 : -1;
+    group.add(ring);
+  }
+  return group;
+}
+
+// ─── Halo dust cloud ──────────────────────────────────────────
+function buildHaloDust(innerR, outerR, count) {
+  var pos = new Float32Array(count * 3);
+  var col = new Float32Array(count * 3);
+  for (var i = 0; i < count; i++) {
+    var theta = Math.random() * Math.PI * 2;
+    var phi   = Math.acos(2 * Math.random() - 1);
+    var r     = innerR + Math.random() * (outerR - innerR);
+    pos[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+    pos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+    pos[i*3+2] = r * Math.cos(phi);
+    var c = palette[Math.floor(Math.random() * palette.length)];
+    var t = 0.15 + Math.random() * 0.35;
+    col[i*3]   = c.r * t;
+    col[i*3+1] = c.g * t;
+    col[i*3+2] = c.b * t;
+  }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color',    new THREE.BufferAttribute(col, 3));
+  return new THREE.Points(geo, new THREE.PointsMaterial({
+    size: 0.042,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.55,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  }));
+}
+
+// ─── Assemble ─────────────────────────────────────────────────
+var sphere = buildParticleSphere(5, 12000);
+scene.add(sphere);
+
+var rings = buildAllRings(5.8, 6);
+scene.add(rings);
+
+var halo = buildHaloDust(5.6, 9, 2500);
+scene.add(halo);
+
+// ─── Animate ──────────────────────────────────────────────────
+var time = 0;
+(function animate() {
+  requestAnimationFrame(animate);
+  time += 0.002;
+
+  controls.update();
+
+  sphere.rotation.y = time * 0.22;
+  sphere.rotation.x = Math.sin(time * 0.13) * 0.12;
+
+  rings.children.forEach(function(ring) {
+    ring.rotation.z += ring.userData.speed * ring.userData.dir;
+  });
+
+  halo.rotation.y = -time * 0.04;
+
+  renderer.render(scene, camera);
+})();
+
+// ─── Resize ───────────────────────────────────────────────────
+window.addEventListener('resize', function() {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
