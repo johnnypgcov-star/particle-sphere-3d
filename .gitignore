@@ -1,0 +1,13 @@
+# Safety: never commit secrets or keys (added 19 Nov 2026)
+.env
+.env.*
+!.env.example
+.dev.vars
+*.pem
+*.key
+secrets*
+!secrets*.example
+node_modules/
+__pycache__/
+.DS_Store
+Thumbs.db
